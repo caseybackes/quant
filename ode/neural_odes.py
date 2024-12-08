@@ -203,7 +203,14 @@ class MaritimePredictor:
         self.model = model
     
     def normalize_state(self, state: np.ndarray, grid_size: Tuple[float, float]) -> torch.Tensor:
-        """Normalize state values to [0, 1] range"""
+        """Normalize state values to [0, 1] range
+        Args:
+            state: [lon, lat, speed, heading]
+            grid_size: (max_lon, max_lat)
+        Returns:
+            normalized state tensor: [lon, lat, speed, heading]
+        """
+
         norm_state = state.copy()
         norm_state[0] /= grid_size[0]  # lon
         norm_state[1] /= grid_size[1]  # lat
@@ -253,11 +260,13 @@ class MaritimePredictor:
                     step_size: float = 3600.0) -> np.ndarray:  # default 1 hour steps
         """
         Integrate Hamilton's equations to predict future state
-        Parameters:
-        initial_state: [lon, lat, speed, heading]
-        time_delta: time difference in seconds
-        grid_size: for normalization
-        step_size: integration step size in seconds (default: 1 hour)
+        Args:
+            initial_state: [lon, lat, speed, heading]
+            time_delta: time to predict into the future (in seconds)
+            grid_size: for normalization which avoids nuke-level gradient explosion
+            step_size: time step for integration (in seconds)
+        Returns:
+            predicted state: [lon, lat, speed, heading]        
         """
         device = self.model.device
         current_state = self.normalize_state(initial_state, grid_size).to(device)
@@ -274,7 +283,8 @@ class MaritimePredictor:
                 current_state = (current_state + step_size * grad).detach().to(device)
                 pbar.update(1)
         
-        # Only move to CPU at the very end
+        
+        
         return self.denormalize_state(current_state.cpu(), grid_size)
 
     def predict_future_trajectory(self, 
@@ -343,6 +353,12 @@ class MaritimePredictor:
 
     def estimate_uncertainty(self, state: np.ndarray, time_delta: float) -> Dict:
         """Estimate prediction uncertainty based on time horizon"""
+        position = state[:2] 
+        speed = state[2]
+        heading = state[3]
+        # TODO :
+        # - State Position and velocity uncertainty grows linearly with time
+        # - use the abovev variables to calculate the uncertainty
         return {
             'position': 0.001 * time_delta,  # Growing circle/ellipse
             'speed': 0.0005 * time_delta,    # Min/max bounds
@@ -612,7 +628,7 @@ def main():
     # NOTE:Generate test data if you dont have any on hand. 
     # we need the cols 'timestamp', 'lon', 'lat', 'speed', 'heading'
     # I have one on hand so I can use that, but if you want the same data you can pull it from :
-    # GCP Bucket location:
+    # GCP Bucket location for keen-autumn project:
     #       gs://dev-bucket-001/filtered_ais_data.parquet
     # or via command line:
     #       "gsutil cp gs://dev-bucket-001/filtered_ais_data.parquet ."
